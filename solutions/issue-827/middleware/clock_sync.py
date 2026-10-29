@@ -5,18 +5,20 @@ synchronization to GPS-disciplined UTC references, maintaining timestamp jitter 
 
 Security & Precision hardening applied:
   - Input validation on epoch timestamps (NaN, Inf, negative value rejection)
+  - Platform-resilient year bounds protection (CWE-754 / CWE-190 CRT bounds)
   - Thread-safe telemetry retrieval
 """
 from typing import Dict, Any, List
 import time
 import math
-import random
 
 
 class MasterClock432Hz:
     FREQUENCY_HZ = 432.0
     PERIOD_S = 1.0 / 432.0
     PERIOD_MS = PERIOD_S * 1000.0
+    # Safe epoch limits for Windows / POSIX C-runtime gmtime (1970 to 2999)
+    MAX_SAFE_EPOCH = 32535215999.0
 
     def __init__(self):
         self.phase_offset_ns = 0
@@ -45,9 +47,16 @@ class MasterClock432Hz:
         """Disciplines and formats an epoch timestamp to ISO-8601 UTC with microsecond resolution."""
         if not isinstance(epoch_time_s, (int, float)) or math.isnan(epoch_time_s) or math.isinf(epoch_time_s):
             epoch_time_s = time.time()
-        if epoch_time_s < 0:
-            epoch_time_s = 0.0
 
-        gm = time.gmtime(epoch_time_s)
+        # Clamp within platform-safe C-runtime gmtime bounds (0 to year 2999)
+        if epoch_time_s < 0.0 or epoch_time_s > self.MAX_SAFE_EPOCH:
+            epoch_time_s = time.time()
+
+        try:
+            gm = time.gmtime(epoch_time_s)
+        except (OSError, OverflowError, ValueError):
+            epoch_time_s = time.time()
+            gm = time.gmtime(epoch_time_s)
+
         usec = max(0, min(999999, int((epoch_time_s - int(epoch_time_s)) * 1_000_000)))
         return time.strftime("%Y-%m-%dT%H:%M:%S", gm) + f".{usec:06d}Z"

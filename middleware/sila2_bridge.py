@@ -4,7 +4,8 @@ Integrates Hamilton Microlab STARlet liquid handlers, DryLab4 chromatography mod
 and 432 Hz master clock synchronization with ICH Q14 audit logging.
 
 Cybersecurity & Resilience hardening applied:
-  - CWE-20: Strict bounds and type validation on liquid handler pipetting parameters
+  - CWE-20: Strict type boundary enforcement (rejection of bool-as-int and non-numeric scalars)
+  - CWE-1333: O(1) ReDoS length guards on operation IDs
   - CWE-117: Sanitized operation IDs preventing CRLF and log injection
   - Real gRPC server listening on port 50051 with graceful shutdown and healthcheck
   - Thread-safe operational loop with sub-microsecond feedback emulation
@@ -32,7 +33,6 @@ OPERATION_ID_REGEX = re.compile(r"^[a-zA-Z0-9_\-\.:]{1,64}$")
 
 class HamiltonSTARletBridge:
     def __init__(self, audit_log_path: str = "results/ich_q14_audit.log"):
-        # Resolve audit log path
         self.drylab = DryLab4RetentionEngine()
         self.clock = MasterClock432Hz()
         self.logger = ICHQ14AuditLogger(audit_log_path)
@@ -45,20 +45,23 @@ class HamiltonSTARletBridge:
             raise ValueError("channels must be a non-empty list of integer channel numbers")
         
         for ch in channels:
-            if not isinstance(ch, int) or ch < 1 or ch > MAX_CHANNELS:
-                raise ValueError(f"Channel {ch!r} out of valid hardware range [1, {MAX_CHANNELS}]")
+            # Strict type check: Python bool is a subclass of int, so reject bool explicitly
+            if type(ch) is not int or ch < 1 or ch > MAX_CHANNELS:
+                raise ValueError(f"Channel {ch!r} must be an integer in hardware range [1, {MAX_CHANNELS}]")
 
         if len(channels) != len(set(channels)):
             raise ValueError("Duplicate channel numbers detected in aspiration request")
 
-        if not isinstance(volume_ul, (int, float)) or math.isnan(volume_ul) or math.isinf(volume_ul):
+        # Explicit rejection of boolean or non-finite float
+        if type(volume_ul) is bool or not isinstance(volume_ul, (int, float)) or math.isnan(volume_ul) or math.isinf(volume_ul):
             raise ValueError("volume_ul must be a finite numerical value")
 
         if volume_ul < MIN_VOLUME_UL or volume_ul > MAX_VOLUME_UL:
             raise ValueError(f"volume_ul {volume_ul:.2f} out of allowable range [{MIN_VOLUME_UL}, {MAX_VOLUME_UL}] uL")
 
-        if not isinstance(operation_id, str) or not OPERATION_ID_REGEX.match(operation_id):
-            raise ValueError(f"operation_id must match {OPERATION_ID_REGEX.pattern} (max 64 chars)")
+        # Fast O(1) length check before regex matching to prevent ReDoS (CWE-1333)
+        if not isinstance(operation_id, str) or len(operation_id) == 0 or len(operation_id) > 64 or not OPERATION_ID_REGEX.match(operation_id):
+            raise ValueError(f"operation_id must be alphanumeric with [-_.:], 1-64 chars")
 
     def execute_liquid_handling_cycle(
         self,

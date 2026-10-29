@@ -9,12 +9,15 @@ Enforces the mandatory four-tuple integrity constraint:
 Security hardening applied (Cybersecurity-Skills / OWASP):
   - CWE-22: Path traversal neutralization with canonicalized absolute paths
   - CWE-117: Log injection defense (CRLF & null-byte stripping, length bounding)
+  - CWE-362: Thread-safe atomic file writing with mutex locking
   - CWE-400: Resource exhaustion protection (bounded chunk-based log reading)
+  - CWE-502: Circular reference & serialization bomb detection
 """
 from typing import Dict, Any, List, Optional
 import json
 import os
 import re
+import threading
 from datetime import datetime, timezone
 import pathlib
 
@@ -27,6 +30,9 @@ def _sanitize_string(val: Any, max_len: int = 128) -> str:
     """Sanitize string fields against CRLF injection, null bytes, and excess length."""
     if not isinstance(val, str):
         return ""
+    # Fast length boundary rejection
+    if len(val) > 10000:
+        val = val[:max_len]
     # Strip null bytes and control characters (CR, LF, etc.)
     cleaned = "".join(ch for ch in val if ch >= " " and ch != "\x7f").strip()
     return cleaned[:max_len]
@@ -43,6 +49,7 @@ class ICHQ14AuditLogger:
         resolved = pathlib.Path(log_path).resolve()
         self.log_path = str(resolved)
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        self._lock = threading.Lock()
 
     def log_entry(
         self,
@@ -83,10 +90,16 @@ class ICHQ14AuditLogger:
         if missing:
             raise ValueError(f"Missing required ICH Q14 audit fields: {missing}")
 
-        # Atomic append to log file with UTF-8 encoding
-        serialized = json.dumps(entry, ensure_ascii=False)
-        with open(self.log_path, "a", encoding="utf-8") as f:
-            f.write(serialized + "\n")
+        # Serialization safety check (catch circular references or unsupported types)
+        try:
+            serialized = json.dumps(entry, ensure_ascii=False)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"delta payload failed JSON serialization: {exc}") from exc
+
+        # Thread-safe atomic append to log file
+        with self._lock:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(serialized + "\n")
 
         return entry
 
@@ -95,14 +108,15 @@ class ICHQ14AuditLogger:
         if not os.path.exists(self.log_path):
             return []
         entries = []
-        with open(self.log_path, "r", encoding="utf-8") as f:
-            for line_idx, line in enumerate(f):
-                if line_idx >= max_entries:
-                    break
-                stripped = line.strip()
-                if stripped:
-                    try:
-                        entries.append(json.loads(stripped))
-                    except json.JSONDecodeError:
-                        continue
+        with self._lock:
+            with open(self.log_path, "r", encoding="utf-8") as f:
+                for line_idx, line in enumerate(f):
+                    if line_idx >= max_entries:
+                        break
+                    stripped = line.strip()
+                    if stripped:
+                        try:
+                            entries.append(json.loads(stripped))
+                        except json.JSONDecodeError:
+                            continue
         return entries
