@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  sila2-bridge:
+    build: .
+    container_name: sila2-hamilton-bridge
+    ports:
+      - "50051:50051"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SILA2_PORT=50051
+      - MASTER_CLOCK_HZ=432
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 2s
+    restart: unless-stopped

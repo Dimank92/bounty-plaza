@@ -1,0 +1,3 @@
+{"actor": "operator_admin_01", "timestamp": "2026-10-29T12:00:00.123456Z", "delta": {"state_transition": "INITIALIZING -> READY", "clock_frequency_hz": 432}, "operation_id": "OP-INIT-432-001"}
+{"actor": "drylab4_bridge_svc", "timestamp": "2026-10-29T12:01:15.654321Z", "delta": {"retention_model": "LSER_dual_factor", "predicted_compounds": 6, "max_error_fraction": 0.0078}, "operation_id": "OP-MODEL-DL4-002"}
+{"actor": "hamilton_starlet_driver", "timestamp": "2026-10-29T12:02:30.987654Z", "delta": {"channels_aspirated": [1, 2, 3, 4], "volume_ul": 25.0, "feedback_latency_us": 1.15}, "operation_id": "OP-DISP-STARLET-003"}
