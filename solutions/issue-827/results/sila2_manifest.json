@@ -1255,6 +1255,6 @@
   "e2e_test_command": [
     "python",
     "-c",
-    "import sys; print('E2E Interoperability Verified'); sys.exit(0)"
+    "from middleware.sila2_bridge import HamiltonSTARletBridge; b = HamiltonSTARletBridge(); res = b.execute_liquid_handling_cycle([1, 2, 3, 4], 25.0, 'OP-E2E-VALIDATION-001'); assert res['success']; report = b.drylab.generate_predictions_report(); assert all(r['within_tolerance'] for r in report); print('E2E Interoperability Verified'); import sys; sys.exit(0)"
   ]
 }
